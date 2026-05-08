@@ -1,0 +1,192 @@
+<script>
+  /**
+   * JavaScript.html - Logika Client Side
+   */
+
+  let currentUser = null;
+  let chart = null;
+
+  // Inisialisasi saat halaman dimuat
+  window.addEventListener('load', () => {
+    lucide.createIcons();
+    refreshData();
+    
+    // Set Interval refresh 30 detik
+    setInterval(refreshData, 30000);
+  });
+
+  function refreshData() {
+    google.script.run
+      .withSuccessHandler(data => {
+        updateStats(data.stats);
+        updateCandidates(data.candidates);
+        updateLogs(data.logs);
+        updateChart(data.candidates, data.stats.suaraMasuk);
+      })
+      .getData();
+  }
+
+  function updateStats(stats) {
+    const grid = document.getElementById('statsGrid');
+    const items = [
+      { label: "Total Pemilih", value: stats.totalVoters, icon: 'users', sub: 'DPT Tetap' },
+      { label: "Kandidat", value: stats.totalCandidates, icon: 'user-check', sub: 'Calon Ketua RT' },
+      { label: "Suara Masuk", value: stats.suaraMasuk, icon: 'vote', sub: 'Surat Suara' },
+      { label: "Partisipasi", value: stats.partisipasi, icon: 'bar-chart-3', sub: 'Persentase' }
+    ];
+    
+    grid.innerHTML = items.map(item => `
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-start gap-4">
+        <div class="w-8 h-8 bg-red-50 text-red-900 rounded flex items-center justify-center shrink-0">
+          <i data-lucide="${item.icon}" size="18"></i>
+        </div>
+        <div>
+          <h4 class="text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">${item.label}</h4>
+          <div class="text-xl font-bold text-gray-900">${item.value}</div>
+          <p class="text-[8px] text-gray-500">${item.sub}</p>
+        </div>
+      </div>
+    `).join('');
+    lucide.createIcons();
+  }
+
+  function updateCandidates(candidates) {
+    const container = document.getElementById('candidateList');
+    container.innerHTML = candidates.map(c => `
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition">
+        <div class="h-48 bg-gray-200 relative overflow-hidden">
+          <img src="${c.foto || 'https://via.placeholder.com/400'}" class="w-full h-full object-cover">
+          <div class="absolute top-3 left-3 w-7 h-7 bg-red-900 text-white flex items-center justify-center font-bold rounded shadow">${c.no}</div>
+        </div>
+        <div class="p-5 space-y-4">
+          <h4 class="text-base font-bold text-gray-900">${c.nama}</h4>
+          <div class="space-y-1">
+            <h5 class="text-[8px] font-bold text-gray-400 uppercase tracking-widest">Visi</h5>
+            <p class="text-[10px] text-gray-600 italic">"${c.visi}"</p>
+          </div>
+          <button onclick="handleVote(${c.no})" class="${currentUser ? 'bg-red-800' : 'bg-gray-400 cursor-not-allowed'} w-full py-2.5 rounded-lg text-white font-bold text-xs transition">
+            ${currentUser ? 'Pilih Kandidat' : 'Login untuk Pilih'}
+          </button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function updateLogs(logs) {
+    const tbody = document.getElementById('logTableBody');
+    tbody.innerHTML = logs.map(log => `
+      <tr class="hover:bg-gray-50 transition">
+        <td class="px-4 py-3 text-gray-500">${log.waktu}</td>
+        <td class="px-4 py-3 font-bold text-gray-900">${log.nama}</td>
+        <td class="px-4 py-3 text-green-600 font-bold flex items-center gap-1">
+          <i data-lucide="check-circle-2" size="10"></i> ${log.status}
+        </td>
+      </tr>
+    `).join('');
+    lucide.createIcons();
+  }
+
+  function updateChart(candidates, total) {
+    const colors = ['#8B0000', '#B22222', '#DC143C'];
+    const ctx = document.getElementById('voteChart').getContext('2d');
+    document.getElementById('totalSuara').innerText = total;
+
+    const data = {
+      labels: candidates.map(c => c.nama),
+      datasets: [{
+        data: candidates.map(c => c.suara),
+        backgroundColor: colors,
+        borderWidth: 0
+      }]
+    };
+
+    if (chart) {
+      chart.data = data;
+      chart.update();
+    } else {
+      chart = new Chart(ctx, {
+        type: 'doughnut',
+        data: data,
+        options: {
+          plugins: { legend: { display: false } },
+          cutout: '70%',
+          responsive: true
+        }
+      });
+    }
+
+    const legend = document.getElementById('chartLegend');
+    legend.innerHTML = candidates.map((c, i) => {
+      const perc = total > 0 ? ((c.suara / total) * 100).toFixed(1) : 0;
+      return `
+        <div class="flex items-center justify-between text-[10px]">
+          <div class="flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full" style="background-color: ${colors[i]}"></div>
+            <span class="font-medium text-gray-600 truncate max-w-[100px]">${c.nama}</span>
+          </div>
+          <span class="font-bold text-gray-900">${c.suara} suara (${perc}%)</span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Auth Logic
+  document.getElementById('loginBtn').addEventListener('click', () => {
+    const nik = document.getElementById('nikInput').value;
+    if (!nik) return alert("Masukkan NIK Anda!");
+    
+    showLoading(true);
+    document.getElementById('loginError').classList.add('hidden');
+
+    google.script.run
+      .withSuccessHandler(user => {
+        currentUser = user;
+        document.getElementById('loginFormContainer').classList.add('hidden');
+        document.getElementById('userProfile').classList.remove('hidden');
+        document.getElementById('loginWelcome').classList.remove('hidden');
+        document.getElementById('loginWelcome').innerText = `Selamat datang, ${user.nama}! Silakan gunakan hak suara Anda.`;
+        document.getElementById('userName').innerText = user.nama;
+        showLoading(false);
+        refreshData();
+      })
+      .withFailureHandler(err => {
+        document.getElementById('loginError').innerText = err.message;
+        document.getElementById('loginError').classList.remove('hidden');
+        showLoading(false);
+      })
+      .loginUser(nik);
+  });
+
+  document.getElementById('logoutBtn').addEventListener('click', () => {
+    currentUser = null;
+    document.getElementById('loginFormContainer').classList.remove('hidden');
+    document.getElementById('userProfile').classList.add('hidden');
+    document.getElementById('loginWelcome').classList.add('hidden');
+    document.getElementById('nikInput').value = '';
+    refreshData();
+  });
+
+  function handleVote(candidateNo) {
+    if (!currentUser) return;
+    if (!confirm("Konfirmasi: Apakah Anda yakin ingin memilih kandidat nomor " + candidateNo + "?")) return;
+
+    showLoading(true);
+
+    google.script.run
+      .withSuccessHandler(() => {
+        alert("Terima kasih! Suara Anda berhasil terekam.");
+        showLoading(false);
+        document.getElementById('logoutBtn').click();
+      })
+      .withFailureHandler(err => {
+        alert("Kesalahan: " + err.message);
+        showLoading(false);
+      })
+      .submitVote(currentUser.nik, candidateNo);
+  }
+
+  function showLoading(show) {
+    document.getElementById('loading').style.display = show ? 'flex' : 'none';
+  }
+
+</script>
